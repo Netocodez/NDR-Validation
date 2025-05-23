@@ -121,7 +121,8 @@ def validate_ndr(services):
     tb_encounters = [d for d, e in services['encounters'].items() if e.get('tb') == '1']
     if tb_encounters and not services['ipt_codes']:
         for d in tb_encounters:
-            issues.append(f"❌ TB positive on {d}, but no IPT regimen found.")
+            #issues.append(f"❌ TB positive on {d}, but no IPT regimen found.")
+            issues.append(f"❌ No Sign of TB {d}, but no IPT regimen found.")
 
     for date, l in services['labs'].items():
         if not l.get('test_id') or not l.get('collected'):
