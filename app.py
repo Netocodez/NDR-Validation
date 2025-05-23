@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template_string
 import xml.etree.ElementTree as ET
+from xml.etree.ElementTree import ParseError  # import specific error
 from datetime import datetime
 import os
 import tempfile
@@ -9,11 +10,29 @@ app = Flask(__name__)
 HTML_FORM = """
 <!doctype html>
 <title>NDR XML Validator</title>
-<h2>NDR XML File Validator</h2>
-<form method=post enctype=multipart/form-data>
-  <input type=file name=file>
-  <input type=submit value=Upload>
+<h2>NDR XML File Validator (XML file required not zip)</h2>
+<h3>Validation Rules Guide</h3>
+<p>Please ensure your XML file meets the following rules before uploading:</p>
+<ul>
+  <li>The XML file must be well-formed and valid.</li>
+  <li>Each encounter must have a VisitDate and ARV regimen specified.</li>
+  <li>ART start date should not be after any encounter visit dates.</li>
+  <li>If TB positive status is present, IPT regimen must be included.</li>
+  <li>Lab reports must include test ID and collection date.</li>
+  <li>Regimens with duration greater than 30 days must have MultiMonthDispensing (MMD) specified.</li>
+  <li>ARV codes in encounters must match the prescribed regimen codes.</li>
+  <li>Patient age reported must closely match date of birth and report date.</li>
+  <li>File must have the <code>.xml</code> extension.</li>
+</ul>
+<form method="post" enctype="multipart/form-data">
+  <input type="file" name="file" accept=".xml" required>
+  <input type="submit" value="Upload">
 </form>
+
+{% if error_message %}
+  <p style="color:red;"><strong>{{ error_message }}</strong></p>
+{% endif %}
+
 {% if issues is not none %}
   <h3>Validation Report</h3>
   <ul>
@@ -141,24 +160,38 @@ def validate_ndr(services):
 @app.route('/', methods=['GET', 'POST'])
 def upload_file():
     issues = None
+    error_message = None  # <-- Add this to hold error messages
+
     if request.method == 'POST':
         file = request.files.get('file')
         if file and file.filename:
-            # Use tempfile.gettempdir() to get a safe temp directory cross-platform
-            temp_dir = tempfile.gettempdir()
-            filepath = os.path.join(temp_dir, file.filename)
+            # Check file extension server-side
+            if not file.filename.lower().endswith('.xml'):
+                error_message = "❌ Invalid file type. Please upload an XML file."
+            else:
+                temp_dir = tempfile.gettempdir()
+                filepath = os.path.join(temp_dir, file.filename)
 
-            # Save the file
-            file.save(filepath)
+                file.save(filepath)
 
-            try:
-                services = extract_services_with_dates(filepath)
-                issues = validate_ndr(services)
-            finally:
-                # Clean up the file, but only if it exists
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-    return render_template_string(HTML_FORM, issues=issues)
+                try:
+                    # Wrap parsing in try-except to catch malformed XML errors
+                    services = extract_services_with_dates(filepath)
+                    issues = validate_ndr(services)
+                except ParseError:
+                    error_message = "❌ Failed to parse XML. Please upload a well-formed XML file."
+                except Exception as e:
+                    # Optional: catch other exceptions and show generic error
+                    error_message = f"❌ An unexpected error occurred: {str(e)}"
+                finally:
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+        else:
+            error_message = "❌ No file uploaded."
+
+    # Pass error_message to the template for display
+    return render_template_string(HTML_FORM, issues=issues, error_message=error_message)
+
 
 
 if __name__ == '__main__':
